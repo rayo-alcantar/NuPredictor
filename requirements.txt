@@ -1,0 +1,25 @@
+# PDF Extraction (Options 1, 2, 3)
+pypdf>=5.0.0
+pdfplumber>=0.11.0
+pymupdf>=1.24.0
+
+# Database & Modeling
+sqlmodel>=0.0.22
+pydantic>=2.7.0
+sqlalchemy>=2.0.0
+
+# Data Analysis & Prediction
+pandas>=2.2.0
+numpy>=1.26.0
+scipy>=1.13.0
+statsmodels>=0.14.0
+
+# Utilities
+pyyaml>=6.0.0
+python-dotenv>=1.0.0
+rich>=13.7.0
+click>=8.1.0
+
+# Type Checking & Testing
+pytest>=8.0.0
+mypy>=1.9.0

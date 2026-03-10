@@ -1,0 +1,21 @@
+# Entornos Virtuales
+.venv/
+env/
+venv/
+node_modules/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Datos del Proyecto (Privacidad)
+.env
+data/processed/*.db
+data/raw/
+data/exports/*.csv
+estados-de-cuenta/*.pdf
+
+# Logs y Temporal
+*.log
+docs/archive/
