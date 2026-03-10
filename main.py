@@ -2,6 +2,7 @@ import click
 import os
 from rich.console import Console
 from rich.table import Table
+from rich.panel import Panel
 from src.core.database import init_db, engine, Statement, Transaction, DeferredInstallment
 from src.core.ingestor import Ingestor
 from src.analysis.metrics import FinancialAnalyzer
@@ -86,6 +87,77 @@ def forecast(months):
     console.print(table)
 
 @cli.command()
+def next_payment():
+    """Muestra una explicación simple de lo que pagarás el próximo mes."""
+    analyzer = FinancialAnalyzer()
+    engine_pred = PredictionEngine(analyzer)
+    data = engine_pred.generate_forecast(months_ahead=1)
+    
+    if "error" in data:
+        console.print(f"[red]{data['error']}[/red]"); return
+    
+    p = data['projections'][0]
+    
+    msg = f"""[bold white]Resumen de tu próximo pago estimado[/bold white]
+
+Pagos fijos detectados: [green]${p['Fijo (Conocido)']:,.2f}[/green]
+Cuotas a meses sin intereses activas: [green]${p['Diferido (MSI)']:,.2f}[/green]
+Gasto variable promedio: [yellow]${p['Variable (Base)']:,.2f}[/yellow]
+
+[bold cyan]Pago estimado para el próximo mes: ${p['Escenario Base']:,.2f}[/bold cyan]
+
+[bold white]Explicación simple:[/bold white]
+
+[bold]Pagos fijos[/bold]
+Son cosas que pagas casi todos los meses (suscripciones o servicios).
+
+[bold]Meses sin intereses[/bold]
+Son compras que dividiste en varios meses y todavía estás pagando.
+
+[bold]Gasto variable[/bold]
+Es lo que normalmente gastas en compras del día a día.
+
+[bold yellow]Escenario conservador (mes de gasto alto): ${p['Escenario Conservador']:,.2f}[/bold yellow]
+"""
+    console.print(Panel(msg, expand=False, title="Próximo Pago"))
+
+@cli.command()
+def doctor():
+    """Diagnóstico rápido del sistema."""
+    console.print("\n[bold]Sistema NuPredictor — Diagnóstico[/bold]\n")
+    
+    data_dir = "estados-de-cuenta"
+    db_path = "data/processed/nupredictor.db"
+    
+    dir_ok = os.path.exists(data_dir)
+    db_ok = os.path.exists(db_path)
+    
+    pdfs = [f for f in os.listdir(data_dir) if f.lower().endswith(".pdf")] if dir_ok else []
+    
+    n_processed = 0
+    if db_ok:
+        try:
+            with Session(engine) as session:
+                n_processed = session.exec(select(func.count(Statement.id))).one()
+        except Exception:
+            db_ok = False
+            
+    console.print(f"Carpeta de estados de cuenta: {'[green]OK[/green]' if dir_ok else '[red]NO ENCONTRADA[/red]'}")
+    console.print(f"Base de datos encontrada: {'[green]OK[/green]' if db_ok else '[red]ERROR / NO INICIALIZADA[/red]'}")
+    console.print(f"Estados procesados: [cyan]{n_processed}[/cyan]")
+    console.print(f"PDFs detectados en carpeta: [cyan]{len(pdfs)}[/cyan]")
+    console.print(f"PDFs pendientes de ingerir: [yellow]{max(0, len(pdfs) - n_processed)}[/yellow]")
+    
+    if dir_ok and db_ok and len(pdfs) == n_processed:
+        console.print("\n[bold green]Estado general: Todo parece funcionar correctamente.[/bold green]")
+    elif not dir_ok:
+        console.print("\n[bold red]Estado general: Requieres crear la carpeta 'estados-de-cuenta'.[/bold red]")
+    elif not db_ok:
+        console.print("\n[bold red]Estado general: Requieres inicializar la base con 'python main.py init'.[/bold red]")
+    else:
+        console.print("\n[bold yellow]Estado general: Hay archivos pendientes. Corre 'python main.py ingest'.[/bold yellow]")
+
+@cli.command()
 @click.pass_context
 def monthly_update(ctx):
     """Flujo completo: Ingesta -> Stats -> Forecast."""
@@ -94,7 +166,7 @@ def monthly_update(ctx):
     console.print("\n")
     ctx.invoke(stats)
     console.print("\n")
-    ctx.invoke(forecast, months=3)
+    ctx.invoke(next_payment)
 
 @cli.command()
 def export():
@@ -103,21 +175,19 @@ def export():
     os.makedirs("data/exports", exist_ok=True)
     
     # 1. Resumen Mensual
-    summary = analyzer.get_monthly_breakdown()
-    summary.to_csv("data/exports/monthly_summary.csv", index=False)
-    
+    analyzer.get_monthly_breakdown().to_csv("data/exports/monthly_summary.csv", index=False)
     # 2. Top Comercios
-    tops = analyzer.get_top_merchants_clean(limit=50)
-    tops.to_csv("data/exports/top_merchants.csv", index=False)
-    
+    analyzer.get_top_merchants_clean(limit=50).to_csv("data/exports/top_merchants.csv", index=False)
     # 3. Suscripciones
-    subs = pd.DataFrame(analyzer.detect_subscriptions())
-    subs.to_csv("data/exports/subscriptions_detected.csv", index=False)
+    pd.DataFrame(analyzer.detect_subscriptions()).to_csv("data/exports/subscriptions_detected.csv", index=False)
+    # 4. Transacciones Limpias (NUEVO)
+    analyzer.get_all_transactions_clean().to_csv("data/exports/transactions_clean.csv", index=False)
     
     console.print("[green]Archivos exportados exitosamente en data/exports/[/green]")
     console.print("- monthly_summary.csv")
     console.print("- top_merchants.csv")
     console.print("- subscriptions_detected.csv")
+    console.print("- transactions_clean.csv")
 
 if __name__ == "__main__":
     cli()
