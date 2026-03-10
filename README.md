@@ -108,4 +108,24 @@ NuPredictor **no es un producto oficial de Nu**. No estamos afiliados ni respald
 **Seguridad de Datos:** El archivo `.gitignore` está configurado para que nunca subas accidentalmente tus estados de cuenta reales (`.pdf`) o tu base de datos (`.db`) a repositorios públicos. **Mantén tu información personal a salvo.**
 
 ---
+
+## ⚠️ Descargo de Responsabilidad (Disclaimer)
+
+**El uso de esta herramienta es responsabilidad exclusiva del usuario final.** 
+
+El autor de **NuPredictor** no se hace responsable por:
+- El uso indebido de la herramienta.
+- Errores en los cálculos o predicciones (use los datos solo como referencia).
+- Decisiones financieras tomadas basadas en los reportes de este sistema.
+- La gestión, seguridad o pérdida de los datos financieros del usuario.
+
+Solo el usuario sabe qué hace con la herramienta y cómo maneja sus documentos. **Úselo bajo su propio riesgo.**
+
+---
+
+## 📄 Licencia
+
+Este proyecto está bajo la [Licencia MIT](LICENSE). Esto significa que puedes usarlo, copiarlo y modificarlo libremente, siempre y cuando se mantenga el aviso de copyright y la limitación de responsabilidad.
+
+---
 *Hecho con 💜 para la comunidad financiera. ¡Que viva el corazón morado!*
