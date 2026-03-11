@@ -63,28 +63,102 @@ def stats():
         console.print(f"\nResumen: {n_statements} estados, {n_transactions} transacciones.")
 
 @cli.command()
-@click.option('--months', default=3, help='Número de meses a proyectar.')
-def forecast(months):
-    """Genera una predicción pragmática de pagos futuros."""
+@click.argument('raw_name', required=False)
+@click.argument('clean_name', required=False)
+@click.argument('category', required=False)
+def alias(raw_name, clean_name, category):
+    """
+    Limpia los nombres de comercios (Modo interactivo si no hay argumentos).
+    """
+    analyzer = FinancialAnalyzer()
+    
+    # Modo Interactivo
+    if not raw_name:
+        console.print("[bold cyan]Modo de Limpieza de Comercios[/bold cyan]")
+        unaliased = analyzer.get_unaliased_merchants(limit=5)
+        
+        if not unaliased:
+            console.print("¡Genial! Todos tus comercios frecuentes ya tienen un nombre limpio.")
+            return
+
+        console.print(f"He encontrado {len(unaliased)} comercios frecuentes con nombres difíciles. Vamos a limpiarlos:\n")
+        for raw in unaliased:
+            if click.confirm(f"¿Quieres renombrar '{raw}'?"):
+                clean = click.prompt(f"  Nombre legible (ej. Uber Eats)", default=raw)
+                cat = click.prompt(f"  Categoría (ej. Comida, Transporte, Compras)", default="Otros")
+                analyzer.upsert_alias(raw, clean, cat)
+                console.print(f"  [green]✓ Guardado![/green]\n")
+        return
+
+    # Modo Directo
+    if not (clean_name and category):
+        console.print("[red]Error: Si usas argumentos, debes pasar los tres: RAW_NAME CLEAN_NAME CATEGORY[/red]")
+        return
+        
+    analyzer.upsert_alias(raw_name, clean_name, category)
+    console.print(f"[green]Alias guardado:[/green] {raw_name} -> [bold]{clean_name}[/bold] ({category})")
+
+@cli.command()
+@click.option('--meses', default=None, type=int, help='¿Cuántos meses al futuro quieres ver?')
+def forecast(meses):
+    """Predice cuánto pagarás en los próximos meses."""
     analyzer = FinancialAnalyzer()
     engine_pred = PredictionEngine(analyzer)
-    data = engine_pred.generate_forecast(months_ahead=months)
+    
+    # 1. Preguntar meses si no se dieron por parámetro
+    if meses is None:
+        meses = click.prompt("¿A cuántos meses quieres ver tu predicción?", type=int, default=3)
+
+    # 2. Preguntar por gastos extra
+    adjustments = {}
+    if click.confirm("\n¿Tienes planeado algún gasto fuerte extraordinario próximamente?"):
+        monto = click.prompt("  ¿De cuánto es el gasto?", type=float)
+        offset = click.prompt(f"  ¿En qué mes será? (1-{meses})", type=click.IntRange(1, meses), default=1)
+        adjustments[offset] = monto
+
+    data = engine_pred.generate_forecast(months_ahead=meses, adjustments=adjustments)
     
     if "error" in data:
-        console.print(f"[red]{data['error']}[/red]"); return
+        console.print(f"\n[bold red]Ups![/bold red] {data['error']}"); return
 
-    console.print(f"\n[bold blue]Proyección de Pagos Futuros (Próximos {months} meses)[/bold blue]")
-    console.print(f"Gasto Fijo: [green]${data['model_metadata']['fixed_subscriptions']:,.2f}[/green] | Var. Promedio: [yellow]${data['model_metadata']['historical_avg_variable']:,.2f}[/yellow]\n")
+    console.print(f"\n[bold magenta]🔮 Tu Futuro Financiero (Próximos {meses} meses)[/bold magenta]")
+    console.print(f"Basado en tus últimos gastos y MSI activos:\n")
     
-    table = Table(header_style="bold cyan")
-    table.add_column("Mes"); table.add_column("Fijo+MSI", justify="right")
-    table.add_column("Var. Est.", justify="right"); table.add_column("Pago Base", justify="right", style="bold green")
-    table.add_column("Esc. Conservador", justify="right", style="yellow")
+    table = Table(header_style="bold cyan", box=None)
+    table.add_column("Mes", style="dim"); table.add_column("Fijos + MSI", justify="right")
+    table.add_column("Variable Est.", justify="right"); table.add_column("Extra", justify="right", style="magenta")
+    table.add_column("Total Estimado", justify="right", style="bold green")
     
     for p in data['projections']:
         fixed_msi = p['Fijo (Conocido)'] + p['Diferido (MSI)']
-        table.add_row(p['Mes'], f"${fixed_msi:,.2f}", f"${p['Variable (Base)']:,.2f}", f"${p['Escenario Base']:,.2f}", f"${p['Escenario Conservador']:,.2f}")
+        extra_val = p.get('Ajuste Manual', 0.0)
+        table.add_row(
+            p['Mes'], 
+            f"${fixed_msi:,.2f}", 
+            f"${p['Variable (Est.)']:,.2f}", 
+            f"${extra_val:,.2f}" if extra_val > 0 else "-",
+            f"${p['Escenario Base']:,.2f}"
+        )
     console.print(table)
+    
+    console.print(f"\n[bold yellow]💡 Nota de NuPredictor:[/bold yellow]")
+    console.print(f"Tu gasto variable estimado es de [cyan]${data['model_metadata']['historical_avg_variable']:,.2f}[/cyan] mensuales.")
+    if meses > 0:
+        console.print(f"Para {p['Mes']}, el escenario conservador es de [yellow]${p['Escenario Conservador']:,.2f}[/yellow].\n")
+
+@cli.command()
+def tutorial():
+    """Guía rápida para nuevos usuarios."""
+    steps = [
+        ("1. Ingesta", "Coloca tus PDFs de Nu en la carpeta 'estados-de-cuenta'."),
+        ("2. Actualización", "Ejecuta 'python main.py monthly-update' para leer los archivos."),
+        ("3. Limpieza", "Usa 'python main.py alias' para que los nombres feos del banco se vean bien."),
+        ("4. Predicción", "Usa 'python main.py next-payment' para saber cuánto pagarás el próximo mes.")
+    ]
+    
+    console.print(Panel("[bold purple]¡Bienvenido a NuPredictor! 💜[/bold purple]\n\nSigue estos pasos para dominar tus finanzas:", expand=False))
+    for i, (title, desc) in enumerate(steps):
+        console.print(f"[bold cyan]{title}[/bold cyan]: {desc}")
 
 @cli.command()
 def next_payment():
@@ -98,26 +172,19 @@ def next_payment():
     
     p = data['projections'][0]
     
-    msg = f"""[bold white]Resumen de tu próximo pago estimado[/bold white]
+    msg = f"""[bold white]Resumen de tu próximo pago estimado ({p['Mes']})[/bold white]
 
 Pagos fijos detectados: [green]${p['Fijo (Conocido)']:,.2f}[/green]
 Cuotas a meses sin intereses activas: [green]${p['Diferido (MSI)']:,.2f}[/green]
-Gasto variable promedio: [yellow]${p['Variable (Base)']:,.2f}[/yellow]
+Gasto variable (WMA 4 meses): [yellow]${p['Variable (Est.)']:,.2f}[/yellow]
 
-[bold cyan]Pago estimado para el próximo mes: ${p['Escenario Base']:,.2f}[/bold cyan]
+[bold cyan]Pago estimado: ${p['Escenario Base']:,.2f}[/bold cyan]
 
-[bold white]Explicación simple:[/bold white]
+[bold white]Escenarios:[/bold white]
+- Optimista (Gasto bajo): [green]${p['Escenario Optimista']:,.2f}[/green]
+- Conservador (Gasto alto): [yellow]${p['Escenario Conservador']:,.2f}[/yellow]
 
-[bold]Pagos fijos[/bold]
-Son cosas que pagas casi todos los meses (suscripciones o servicios).
-
-[bold]Meses sin intereses[/bold]
-Son compras que dividiste en varios meses y todavía estás pagando.
-
-[bold]Gasto variable[/bold]
-Es lo que normalmente gastas en compras del día a día.
-
-[bold yellow]Escenario conservador (mes de gasto alto): ${p['Escenario Conservador']:,.2f}[/bold yellow]
+[italic]Nota: El cálculo usa un promedio ponderado dando más importancia a tus meses de gasto más recientes.[/italic]
 """
     console.print(Panel(msg, expand=False, title="Próximo Pago"))
 

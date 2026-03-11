@@ -10,7 +10,35 @@ class FinancialAnalyzer:
     def _get_aliases(self) -> Dict[str, str]:
         with Session(self.engine) as session:
             aliases = session.exec(select(MerchantAlias)).all()
-            return {a.raw_name: (a.clean_name, a.category) for a in aliases}
+            return {a.raw_name.upper(): (a.clean_name, a.category) for a in aliases}
+
+    def upsert_alias(self, raw_name: str, clean_name: str, category: str):
+        """Añade o actualiza un alias de comercio."""
+        with Session(self.engine) as session:
+            statement = select(MerchantAlias).where(MerchantAlias.raw_name == raw_name.upper())
+            alias = session.exec(statement).first()
+            if alias:
+                alias.clean_name = clean_name
+                alias.category = category
+            else:
+                alias = MerchantAlias(raw_name=raw_name.upper(), clean_name=clean_name, category=category)
+            session.add(alias)
+            session.commit()
+
+    def _auto_categorize(self, merchant_name: str) -> str:
+        """Reglas básicas de auto-categorización por palabras clave."""
+        m = merchant_name.upper()
+        rules = {
+            "Comida": ["UBER EATS", "RAPPI", "RESTAURANT", "STARBUCKS", "TACOS", "BURGER", "CAFE"],
+            "Transporte": ["UBER *", "DIDI", "TAXI", "GASOLINERA", "MOBILITY", "SHELL", "OXXOGAS"],
+            "Suscripciones": ["NETFLIX", "SPOTIFY", "DISNEY+", "APPLE.COM", "PRIME VIDEO", "GOOGLE STORAGE"],
+            "Compras": ["AMAZON", "MERCADO LIBRE", "WALMART", "COSTCO", "CHEDRAUI", "SORIANA", "ZARA"],
+            "Servicios": ["CFE", "TELMEX", "IZZI", "TOTALPLAY", "NATURGY"]
+        }
+        for cat, keywords in rules.items():
+            if any(k in m for k in keywords):
+                return cat
+        return "Otros"
 
     def get_monthly_breakdown(self) -> pd.DataFrame:
         """Desglose avanzado de tipos de gasto por mes."""
@@ -29,7 +57,10 @@ class FinancialAnalyzer:
                 variable = 0.0
                 
                 for t in trans:
-                    clean_name = aliases_map.get(t.merchant, (t.merchant, "Sin Categoría"))[0]
+                    # Intentar alias, luego auto-categorizar
+                    clean_info = aliases_map.get(t.merchant.upper())
+                    clean_name = clean_info[0] if clean_info else t.merchant
+                    
                     if t.type == "ordinary":
                         if clean_name in sub_names:
                             fixed_recurring += t.amount
@@ -56,13 +87,21 @@ class FinancialAnalyzer:
             aliases_map = self._get_aliases()
             data = []
             for trans, stmt in results:
-                clean_info = aliases_map.get(trans.merchant, (trans.merchant, "Sin Categoría"))
+                m_upper = trans.merchant.upper()
+                clean_info = aliases_map.get(m_upper)
+                
+                if clean_info:
+                    c_name, c_cat = clean_info
+                else:
+                    c_name = trans.merchant
+                    c_cat = self._auto_categorize(m_upper)
+                
                 data.append({
                     "fecha": trans.transaction_date,
                     "periodo": stmt.period_end.strftime("%Y-%m"),
                     "merchant_raw": trans.merchant,
-                    "merchant_clean": clean_info[0],
-                    "categoria": clean_info[1],
+                    "merchant_clean": c_name,
+                    "categoria": c_cat,
                     "tipo_transaccion": trans.type,
                     "monto": trans.amount,
                     "archivo_origen": stmt.filename
@@ -117,7 +156,7 @@ class FinancialAnalyzer:
             return sorted(results, key=lambda x: x['occurrence_count'], reverse=True)
 
     def get_active_msi_burden(self) -> pd.DataFrame:
-        """Carga MSI limpia."""
+        """Obtiene el desglose de pagos a meses (MSI) pendientes."""
         aliases_map = self._get_aliases()
         with Session(self.engine) as session:
             last_stmt = session.exec(select(Statement).order_by(Statement.period_end.desc())).first()
@@ -127,9 +166,27 @@ class FinancialAnalyzer:
             projections = []
             for item in msi_items:
                 projections.append({
-                    "merchant": aliases_map.get(item.merchant, (item.merchant, ""))[0],
+                    "merchant": aliases_map.get(item.merchant.upper(), (item.merchant, ""))[0],
                     "monthly_payment": item.installment_amount,
                     "months_left": item.total_installments - item.current_installment,
                     "total_remaining": item.installment_amount * (item.total_installments - item.current_installment)
                 })
             return pd.DataFrame(projections)
+
+    def get_unaliased_merchants(self, limit: int = 5) -> List[str]:
+        """Obtiene los comercios más frecuentes que no tienen alias aún."""
+        aliases_map = self._get_aliases()
+        with Session(self.engine) as session:
+            query = select(Transaction.merchant, func.count(Transaction.id).label("count"))\
+                    .where(Transaction.type == "ordinary")\
+                    .group_by(Transaction.merchant)
+            results = session.exec(query).all()
+            
+            unaliased = []
+            for raw, count in results:
+                if raw.upper() not in aliases_map:
+                    unaliased.append((raw, count))
+            
+            # Ordenar por frecuencia
+            unaliased.sort(key=lambda x: x[1], reverse=True)
+            return [x[0] for x in unaliased[:limit]]
