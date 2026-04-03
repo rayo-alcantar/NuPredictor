@@ -44,6 +44,13 @@ def ingest(ctx, dir):
     ingestor = Ingestor()
     results = ingestor.process_all(dir)
     console.print(f"Ingestión finalizada: [green]{results['success']} éxitos[/green], [red]{results['failed']} fallidos[/red]")
+    
+    if results['success'] > 0:
+        analyzer = FinancialAnalyzer()
+        engine_pred = PredictionEngine(analyzer)
+        val_count = engine_pred.validate_past_predictions()
+        if val_count > 0:
+            console.print(f"[bold cyan]🤖 Aprendizaje de Modelo:[/bold cyan] Se validaron {val_count} predicciones con los nuevos datos.")
 
 @cli.command()
 def stats():
@@ -255,6 +262,48 @@ def export():
     console.print("- top_merchants.csv")
     console.print("- subscriptions_detected.csv")
     console.print("- transactions_clean.csv")
+
+@cli.command()
+def model_metrics():
+    """Muestra el desempeño y sesgo del modelo de predicción."""
+    from src.core.database import Prediction
+    analyzer = FinancialAnalyzer()
+    engine_pred = PredictionEngine(analyzer)
+    
+    with Session(engine) as session:
+        preds = session.exec(select(Prediction).order_by(Prediction.target_period.desc())).all()
+    
+    bias = engine_pred.get_bias_correction_factor()
+    
+    console.print("\n[bold]Desempeño del Modelo de Predicción[/bold]\n")
+    console.print(f"Factor de corrección de sesgo actual: [magenta]{bias:.4f}[/magenta] (Multiplicador aplicado a nuevas predicciones)\n")
+    
+    if not preds:
+        console.print("No hay predicciones registradas todavía.")
+        return
+        
+    table = Table(title="Historial de Predicciones")
+    table.add_column("Periodo", style="cyan")
+    table.add_column("Predicho (Base)", justify="right")
+    table.add_column("Real", justify="right")
+    table.add_column("Error %", justify="right")
+    
+    for p in preds:
+        real_str = f"${p.actual_amount:,.2f}" if p.actual_amount is not None else "[dim]Pendiente[/dim]"
+        err_str = f"{p.error_margin * 100:+.2f}%" if p.error_margin is not None else "-"
+        
+        if p.error_margin is not None:
+            err_style = "green" if p.error_margin >= 0 else "red"
+            err_str = f"[{err_style}]{err_str}[/{err_style}]"
+            
+        table.add_row(
+            p.target_period,
+            f"${p.base_amount:,.2f}",
+            real_str,
+            err_str
+        )
+        
+    console.print(table)
 
 if __name__ == "__main__":
     cli()

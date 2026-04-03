@@ -19,7 +19,7 @@ def parse_spanish_date(date_str: str) -> Optional[date]:
 class Statement(SQLModel, table=True):
     __tablename__ = "statements"
     id: Optional[int] = Field(default=None, primary_key=True)
-    filename: str = Field(index=True, unique=True)
+    filename: str = Field(index=True)
     file_hash: str = Field(unique=True)
     period_start: date; period_end: date
     total_balance: float; previous_balance: float; payments_made: float; purchases_made: float
@@ -63,6 +63,17 @@ class Anomaly(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     statement_id: Optional[int] = Field(default=None, foreign_key="statements.id")
     anomaly_type: str; description: str; detected_at: datetime = Field(default_factory=datetime.now)
+
+class Prediction(SQLModel, table=True):
+    __tablename__ = "predictions"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    target_period: str = Field(index=True)
+    generated_at: datetime = Field(default_factory=datetime.now)
+    base_amount: float
+    optimistic_amount: float
+    conservative_amount: float
+    actual_amount: Optional[float] = Field(default=None)
+    error_margin: Optional[float] = Field(default=None)
 
 sqlite_url = "sqlite:///data/processed/nupredictor.db"
 engine = create_engine(sqlite_url, echo=False)
