@@ -53,7 +53,9 @@ class PredictionEngine:
             statement = select(Prediction).where(Prediction.actual_amount != None).order_by(Prediction.target_period.desc()).limit(3)
             valid_preds = session.exec(statement).all()
             
-            if not valid_preds:
+            # Con menos de tres observaciones no se puede distinguir sesgo de
+            # ruido, especialmente si hubo meses faltantes o pagos extraordinarios.
+            if len(valid_preds) < 3:
                 return 1.0 # No hay datos suficientes para corregir sesgo
             
             ratios = []
@@ -63,9 +65,22 @@ class PredictionEngine:
                     # Ej: si gastamos 110 y predijimos 100 -> ratio = 1.1
                     ratios.append(p.actual_amount / p.base_amount)
                     
-            if ratios:
-                return float(np.mean(ratios))
+            if len(ratios) >= 3:
+                # Evitar que una predicción histórica anómala aplaste el modelo.
+                return float(np.clip(np.median(ratios), 0.85, 1.15))
             return 1.0
+
+    @staticmethod
+    def _weighted_median(values, weights):
+        """Mediana ponderada: reduce el efecto de compras extraordinarias."""
+        ordered = sorted(zip(values, weights), key=lambda pair: pair[0])
+        threshold = sum(weights) / 2
+        running = 0
+        for value, weight in ordered:
+            running += weight
+            if running >= threshold:
+                return float(value)
+        return float(ordered[-1][0])
 
     def generate_forecast(self, months_ahead: int = 3, adjustments: Dict[int, float] = None, save: bool = True) -> Dict[str, Any]:
         """
@@ -84,19 +99,23 @@ class PredictionEngine:
 
         # 2. COMPONENTE FIJO (Suscripciones)
         subs = self.analyzer.detect_subscriptions()
-        monthly_fixed_base = sum(s['avg_amount'] for s in subs)
+        monthly_fixed_base = sum(s.get('monthly_amount', s['avg_amount']) for s in subs)
 
         # 3. COMPONENTE MSI (Diferidos Activos)
         msi_burden = self.analyzer.get_active_msi_burden()
         
-        # 4. COMPONENTE VARIABLE (WMA - Weighted Moving Average)
-        # Damos más peso a los meses más recientes (4 meses: 40%, 30%, 20%, 10%)
+        # 4. COMPONENTE VARIABLE (WMA sobre estados observados)
+        # Se ponderan los últimos cuatro estados disponibles; no se inventan
+        # ceros para meses que no tienen estado cargado.
         var_history = history['Variable'].tail(4).tolist()
         n = len(var_history)
         if n > 1:
             weights = np.arange(1, n + 1)
-            var_mean = np.average(var_history, weights=weights)
-            var_std = np.std(var_history)
+            var_mean = self._weighted_median(var_history, weights)
+            # MAD escalada: rango robusto para escenarios, sin dejar que un
+            # solo mes excepcional domine todo el intervalo.
+            deviations = [abs(value - var_mean) for value in var_history]
+            var_std = 1.4826 * float(np.median(deviations))
         else:
             var_mean = var_history[0] if n == 1 else 0.0
             var_std = var_mean * 0.2
@@ -174,7 +193,7 @@ class PredictionEngine:
 
         return {
             "model_metadata": {
-                "algorithm": "Weighted Moving Average (4m) + Bias Correction",
+                "algorithm": "Weighted Median (4 observed statements) + robust MAD",
                 "historical_avg_variable": var_mean,
                 "fixed_subscriptions": monthly_fixed_base,
                 "confidence_std": adjusted_std,

@@ -51,6 +51,13 @@ Puedes usar `python main.py [comando]` para tareas específicas:
 | `monthly-update` | Ejecuta el flujo completo mensual. |
 
 ## 6. Interpretación del Forecast
+
+El pronóstico estima los **cargos del siguiente estado de cuenta**, no el pago
+requerido exacto que Nu determinará después de aplicar abonos, devoluciones e
+intereses. Usa los cuatro estados observados más recientes, una mediana ponderada
+que da más peso a los estados recientes y un rango robusto para que una compra
+extraordinaria no distorsione toda la proyección.
+
 El comando `forecast` te mostrará tres escenarios:
 - **Pago Base (Estimado):** Lo que probablemente pagarás basado en tus suscripciones y gasto promedio.
 - **Escenario Conservador:** Un estimado que contempla picos de gasto (basado en meses de alta volatilidad).

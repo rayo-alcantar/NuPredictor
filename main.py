@@ -169,7 +169,7 @@ def tutorial():
 
 @cli.command()
 def next_payment():
-    """Muestra una explicación simple de lo que pagarás el próximo mes."""
+    """Muestra una explicación simple de los cargos estimados del próximo estado."""
     analyzer = FinancialAnalyzer()
     engine_pred = PredictionEngine(analyzer)
     data = engine_pred.generate_forecast(months_ahead=1)
@@ -179,19 +179,19 @@ def next_payment():
     
     p = data['projections'][0]
     
-    msg = f"""[bold white]Resumen de tu próximo pago estimado ({p['Mes']})[/bold white]
+    msg = f"""[bold white]Resumen de cargos estimados del próximo estado ({p['Mes']})[/bold white]
 
-Pagos fijos detectados: [green]${p['Fijo (Conocido)']:,.2f}[/green]
+Pagos recurrentes detectados: [green]${p['Fijo (Conocido)']:,.2f}[/green]
 Cuotas a meses sin intereses activas: [green]${p['Diferido (MSI)']:,.2f}[/green]
-Gasto variable (WMA 4 meses): [yellow]${p['Variable (Est.)']:,.2f}[/yellow]
+Gasto variable típico (4 estados): [yellow]${p['Variable (Est.)']:,.2f}[/yellow]
 
-[bold cyan]Pago estimado: ${p['Escenario Base']:,.2f}[/bold cyan]
+[bold cyan]Cargos estimados: ${p['Escenario Base']:,.2f}[/bold cyan]
 
 [bold white]Escenarios:[/bold white]
 - Optimista (Gasto bajo): [green]${p['Escenario Optimista']:,.2f}[/green]
 - Conservador (Gasto alto): [yellow]${p['Escenario Conservador']:,.2f}[/yellow]
 
-[italic]Nota: El cálculo usa un promedio ponderado dando más importancia a tus meses de gasto más recientes.[/italic]
+[italic]Nota: Es una proyección de cargos, no sustituye el pago requerido que Nu mostrará en el siguiente estado. Usa los 4 estados observados más recientes y reduce el efecto de compras extraordinarias.[/italic]
 """
     console.print(Panel(msg, expand=False, title="Próximo Pago"))
 
