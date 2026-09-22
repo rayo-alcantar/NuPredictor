@@ -85,16 +85,16 @@ class Ingestor:
                 file_hash=file_hash,
                 period_start=p_start,
                 period_end=p_end,
-                total_balance=summary.get('total_balance', 0.0), 
-                previous_balance=summary.get('previous_balance', 0.0),
-                payments_made=summary.get('payments', 0.0), 
-                purchases_made=summary.get('purchases', 0.0),
-                msi_period_total=validation.get('msi_period', 0.0), 
-                returns_total=summary.get('returns', 0.0),
-                interest_charged=summary.get('interest_total', 0.0), 
-                iva_charged=summary.get('iva', 0.0),
-                credit_limit=summary.get('credit_limit', 0.0), 
-                available_credit=summary.get('available_credit', 0.0),
+                total_balance=summary.get('total_balance') or 0.0,
+                previous_balance=summary.get('previous_balance') or 0.0,
+                payments_made=summary.get('payments') or 0.0,
+                purchases_made=summary.get('purchases') or 0.0,
+                msi_period_total=summary.get('msi_period_total') or 0.0,
+                returns_total=summary.get('returns') or 0.0,
+                interest_charged=summary.get('interest_total') or 0.0,
+                iva_charged=summary.get('iva') or 0.0,
+                credit_limit=summary.get('credit_limit') or 0.0,
+                available_credit=summary.get('available_credit') or 0.0,
                 extraction_engine=engine_name, 
                 reconciliation_mode=validation['mode'],
                 is_valid_accounting=validation['is_valid'], 
@@ -115,7 +115,7 @@ class Ingestor:
             for m in msi_list:
                 p_parts = m['installment'].split('/')
                 session.add(DeferredInstallment(statement_id=db_stmt.id, merchant=m['merchant'], current_installment=int(p_parts[0]),
-                                               total_installments=int(p_parts[1]), installment_amount=m['amount'], remaining_balance=0.0))
+                                               total_installments=int(p_parts[1]), installment_amount=m['amount'], remaining_balance=m.get('remaining_balance', 0.0)))
             session.commit()
             
         return final_path

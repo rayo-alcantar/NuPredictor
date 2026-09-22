@@ -157,7 +157,19 @@ class PredictionEngine:
         if save and predictions_to_save:
             with Session(self.analyzer.engine) as session:
                 for p in predictions_to_save:
-                    session.add(p)
+                    existing = session.exec(
+                        select(Prediction)
+                        .where(Prediction.target_period == p.target_period)
+                        .where(Prediction.actual_amount == None)
+                    ).first()
+                    if existing:
+                        existing.base_amount = p.base_amount
+                        existing.optimistic_amount = p.optimistic_amount
+                        existing.conservative_amount = p.conservative_amount
+                        existing.generated_at = p.generated_at
+                        session.add(existing)
+                    else:
+                        session.add(p)
                 session.commit()
 
         return {
