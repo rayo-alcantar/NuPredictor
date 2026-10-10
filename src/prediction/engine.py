@@ -43,7 +43,7 @@ class PredictionEngine:
                 
         return validated_count
 
-    def get_bias_correction_factor(self) -> float:
+    def get_bias_diagnostics(self) -> Dict[str, Any]:
         """
         Calcula el factor de corrección basado en el error promedio histórico de las últimas 3 validaciones.
         Retorna un multiplicador (ej. 1.05 si el modelo tiende a subestimar un 5%).
@@ -56,7 +56,7 @@ class PredictionEngine:
             # Con menos de tres observaciones no se puede distinguir sesgo de
             # ruido, especialmente si hubo meses faltantes o pagos extraordinarios.
             if len(valid_preds) < 3:
-                return 1.0 # No hay datos suficientes para corregir sesgo
+                return {"factor": 1.0, "used": 0, "excluded": len(valid_preds), "reason": "insufficient_observations"}
             
             ratios = []
             for p in valid_preds:
@@ -65,10 +65,23 @@ class PredictionEngine:
                     # Ej: si gastamos 110 y predijimos 100 -> ratio = 1.1
                     ratios.append(p.actual_amount / p.base_amount)
                     
-            if len(ratios) >= 3:
-                # Evitar que una predicción histórica anómala aplaste el modelo.
-                return float(np.clip(np.median(ratios), 0.85, 1.15))
-            return 1.0
+            # Predicciones generadas por versiones anteriores pueden ser incomparablemente
+            # malas (por ejemplo, cuando faltaba un estado mensual). Excluir ratios fuera
+            # de un rango amplio evita que esos outliers dominen el nuevo modelo.
+            reliable = [ratio for ratio in ratios if 0.50 <= ratio <= 1.50]
+            if len(reliable) < 2:
+                return {
+                    "factor": 1.0,
+                    "used": len(reliable),
+                    "excluded": len(ratios) - len(reliable),
+                    "reason": "historical_outliers_or_insufficient_reliable_observations",
+                }
+            factor = float(np.clip(np.median(reliable), 0.90, 1.10))
+            return {"factor": factor, "used": len(reliable), "excluded": len(ratios) - len(reliable), "reason": "robust_median"}
+
+    def get_bias_correction_factor(self) -> float:
+        """Retorna solo el multiplicador para conservar compatibilidad con la CLI."""
+        return float(self.get_bias_diagnostics()["factor"])
 
     @staticmethod
     def _weighted_median(values, weights):
@@ -121,7 +134,8 @@ class PredictionEngine:
             var_std = var_mean * 0.2
 
         # 5. Calcular Corrección de Sesgo (Feedback Loop)
-        bias_factor = self.get_bias_correction_factor()
+        bias_diagnostics = self.get_bias_diagnostics()
+        bias_factor = float(bias_diagnostics["factor"])
 
         # 6. Generar Proyección Mes a Mes
         forecasts = []
@@ -198,7 +212,8 @@ class PredictionEngine:
                 "fixed_subscriptions": monthly_fixed_base,
                 "confidence_std": adjusted_std,
                 "months_projected": months_ahead,
-                "bias_correction_factor": bias_factor
+                "bias_correction_factor": bias_factor,
+                "bias_diagnostics": bias_diagnostics,
             },
             "projections": forecasts
         }

@@ -121,6 +121,7 @@ class NuExtractor:
         pattern = r"(\d{2} [A-Z]{3}) \d{4}\s+(.*?)\s+\$[\d,.]+\s+\$([\d,.]+)\s+\$([\d,.]+)\s+(\d+/\d+)\s+\d+\.\d+%"
         for m in re.finditer(pattern, text, re.S):
             merchant = " ".join(m.group(2).replace("\n", " ").split())
+            merchant = re.sub(r"\s+\d+/\d+\s*$", "", merchant).strip()
             msi_items.append({
                 "date": m.group(1),
                 "merchant": merchant,

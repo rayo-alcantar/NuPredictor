@@ -14,6 +14,7 @@
 - **🧹 Normalización de Comercios:** Limpia nombres complejos (ej. `UBER *EATS HELP.UBER.C` -> `Uber Eats`).
 - **📈 Análisis Histórico:** Visualiza la evolución de tus gastos, pagos y utilización de crédito.
 - **🔮 Forecast Pragmático:** Predice tu próximo pago separando cargos fijos, MSI y gastos variables.
+- **🧠 Hábitos de Consumo:** Resume categorías, comercios recurrentes y suscripciones observables.
 - **🔒 Privacidad Local:** Tus datos nunca salen de tu máquina. Sin nube, sin rastreo externo.
 
 ---
@@ -77,6 +78,8 @@ Usar NuPredictor es tan simple como el corazón morado:
 | `stats` | 📈 Resumen histórico de estados procesados. |
 | `export` | 📤 Genera archivos CSV listos para Excel. |
 | `forecast` | 🔭 Proyección detallada a futuro. |
+| `habits` | 🧠 Hábitos observables por categoría, comercio y recurrencia. |
+| `model-metrics` | 📏 Historial de predicciones, error y corrección de sesgo. |
 | `reset-db` | ⚠️ Borra todo y reinicia el sistema (pide confirmación). |
 
 ---
@@ -86,7 +89,9 @@ Usar NuPredictor es tan simple como el corazón morado:
 1. **Extracción:** Utiliza un motor de fallback (`pypdf` como primario) para extraer texto manteniendo la estructura de Nu.
 2. **Reconciliación:** Valida que la suma de transacciones, intereses, IVA y pagos coincida exactamente con el saldo final.
 3. **Persistencia:** Guarda todo en una base de datos local `SQLite` usando `SQLModel`.
-4. **Predicción:** Combina tus costos fijos detectados con una media móvil de tus gastos variables para darte un rango de pago estimado.
+4. **Predicción:** Separa suscripciones recurrentes, cuotas a meses y cargos ordinarios. Para el componente variable usa los estados recientes, mediana ponderada y una dispersión robusta (MAD), reduciendo el peso de compras extraordinarias.
+5. **Calibración:** Compara predicciones cerradas contra estados reales. Solo usa ratios históricos plausibles para corregir el sesgo; observaciones heredadas o extremas se reportan como excluidas en `model-metrics`.
+6. **Hábitos:** `habits` genera patrones descriptivos, no diagnósticos: participación por categoría, promedio en meses activos, comercios principales y recurrencia por número de estados.
 
 ---
 

@@ -192,7 +192,9 @@ class FinancialAnalyzer:
             results = []
             for name, info in occurrences.items():
                 count = len(info["statements"])
-                amounts = info["amounts"]
+                amounts = [amount for amount in info["amounts"] if amount > 0]
+                if not amounts:
+                    continue
                 avg_amount = sum(amounts) / len(amounts)
                 mean_abs = abs(avg_amount) or 1.0
                 relative_spread = (max(amounts) - min(amounts)) / mean_abs
@@ -206,6 +208,55 @@ class FinancialAnalyzer:
                         "monthly_amount": round(avg_amount * count / n_statements, 2),
                     })
             return sorted(results, key=lambda x: x['occurrence_count'], reverse=True)
+
+    def get_habits_report(self) -> Dict[str, Any]:
+        """Resume hábitos observables sin inferir intenciones ni usar datos externos.
+
+        Incluye frecuencia por categoría, comercios recurrentes y concentración del
+        gasto. Solo considera cargos ordinarios positivos; pagos, intereses, cuotas
+        y devoluciones se reportan por separado en los estados contables.
+        """
+        transactions = self.get_all_transactions_clean()
+        if transactions.empty:
+            return {"observed_statements": 0, "categories": [], "top_merchants": [], "recurring": []}
+
+        ordinary = transactions[
+            (transactions["tipo_transaccion"] == "ordinary") & (transactions["monto"] > 0)
+        ].copy()
+        observed_statements = int(transactions["periodo"].nunique())
+        if ordinary.empty:
+            return {"observed_statements": observed_statements, "categories": [], "top_merchants": [], "recurring": self.detect_subscriptions()}
+
+        category_totals = ordinary.groupby("categoria")["monto"].agg(["sum", "count"]).reset_index()
+        total = float(category_totals["sum"].sum()) or 1.0
+        category_totals["share"] = category_totals["sum"] / total
+        category_totals["active_periods"] = category_totals["categoria"].map(
+            ordinary.groupby("categoria")["periodo"].nunique()
+        )
+        categories = [
+            {
+                "category": row["categoria"],
+                "total": round(float(row["sum"]), 2),
+                "transactions": int(row["count"]),
+                "active_periods": int(row["active_periods"]),
+                "share": round(float(row["share"]), 4),
+                "average_per_active_period": round(float(row["sum"]) / max(int(row["active_periods"]), 1), 2),
+            }
+            for _, row in category_totals.sort_values("sum", ascending=False).iterrows()
+        ]
+
+        merchant_totals = ordinary.groupby("merchant_clean")["monto"].agg(["sum", "count"]).reset_index()
+        top_merchants = [
+            {"merchant": row["merchant_clean"], "total": round(float(row["sum"]), 2), "transactions": int(row["count"])}
+            for _, row in merchant_totals.sort_values("sum", ascending=False).head(10).iterrows()
+        ]
+        return {
+            "observed_statements": observed_statements,
+            "ordinary_charge_total": round(float(ordinary["monto"].sum()), 2),
+            "categories": categories,
+            "top_merchants": top_merchants,
+            "recurring": self.detect_subscriptions(),
+        }
 
     def get_active_msi_burden(self) -> pd.DataFrame:
         """Obtiene el desglose de pagos a meses (MSI) pendientes."""

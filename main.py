@@ -5,6 +5,7 @@ from rich.table import Table
 from rich.panel import Panel
 from src.core.database import init_db, engine, Statement, Transaction, DeferredInstallment
 from src.core.ingestor import Ingestor
+from src.core.discovery import get_unprocessed_files
 from src.analysis.metrics import FinancialAnalyzer
 from src.prediction.engine import PredictionEngine
 from sqlmodel import Session, select, func
@@ -207,6 +208,7 @@ def doctor():
     db_ok = os.path.exists(db_path)
     
     pdfs = [f for f in os.listdir(data_dir) if f.lower().endswith(".pdf")] if dir_ok else []
+    pending_files = get_unprocessed_files(data_dir) if dir_ok else []
     
     n_processed = 0
     if db_ok:
@@ -220,9 +222,9 @@ def doctor():
     console.print(f"Base de datos encontrada: {'[green]OK[/green]' if db_ok else '[red]ERROR / NO INICIALIZADA[/red]'}")
     console.print(f"Estados procesados: [cyan]{n_processed}[/cyan]")
     console.print(f"PDFs detectados en carpeta: [cyan]{len(pdfs)}[/cyan]")
-    console.print(f"PDFs pendientes de ingerir: [yellow]{max(0, len(pdfs) - n_processed)}[/yellow]")
+    console.print(f"PDFs pendientes de ingerir: [yellow]{len(pending_files)}[/yellow]")
     
-    if dir_ok and db_ok and len(pdfs) == n_processed:
+    if dir_ok and db_ok and not pending_files:
         console.print("\n[bold green]Estado general: Todo parece funcionar correctamente.[/bold green]")
     elif not dir_ok:
         console.print("\n[bold red]Estado general: Requieres crear la carpeta 'estados-de-cuenta'.[/bold red]")
@@ -273,10 +275,11 @@ def model_metrics():
     with Session(engine) as session:
         preds = session.exec(select(Prediction).order_by(Prediction.target_period.desc())).all()
     
-    bias = engine_pred.get_bias_correction_factor()
+    bias_info = engine_pred.get_bias_diagnostics()
     
     console.print("\n[bold]Desempeño del Modelo de Predicción[/bold]\n")
-    console.print(f"Factor de corrección de sesgo actual: [magenta]{bias:.4f}[/magenta] (Multiplicador aplicado a nuevas predicciones)\n")
+    console.print(f"Factor de corrección de sesgo actual: [magenta]{bias_info['factor']:.4f}[/magenta] (Multiplicador aplicado a nuevas predicciones)")
+    console.print(f"Observaciones usadas: {bias_info['used']} | Excluidas: {bias_info['excluded']} | Motivo: {bias_info['reason']}\n")
     
     if not preds:
         console.print("No hay predicciones registradas todavía.")
@@ -304,6 +307,31 @@ def model_metrics():
         )
         
     console.print(table)
+
+@cli.command()
+def habits():
+    """Muestra hábitos observables de consumo por categoría y comercio."""
+    report = FinancialAnalyzer().get_habits_report()
+    console.print(f"\n[bold]Hábitos observables de consumo[/bold] ({report['observed_statements']} estados)\n")
+    if not report.get("categories"):
+        console.print("No hay suficientes cargos ordinarios para generar el reporte.")
+        return
+    table = Table(title="Concentración por categoría")
+    table.add_column("Categoría", style="cyan")
+    table.add_column("Total", justify="right")
+    table.add_column("Participación", justify="right")
+    table.add_column("Meses activos", justify="right")
+    table.add_column("Promedio/mes activo", justify="right")
+    for item in report["categories"]:
+        table.add_row(item["category"], f"${item['total']:,.2f}", f"{item['share'] * 100:.1f}%", str(item["active_periods"]), f"${item['average_per_active_period']:,.2f}")
+    console.print(table)
+    console.print("\n[bold]Comercios con mayor gasto acumulado[/bold]")
+    for item in report["top_merchants"][:5]:
+        console.print(f"- {item['merchant']}: ${item['total']:,.2f} en {item['transactions']} cargos")
+    if report["recurring"]:
+        console.print("\n[bold]Patrones recurrentes detectados[/bold]")
+        for item in report["recurring"]:
+            console.print(f"- {item['merchant']}: aparece en {item['occurrence_count']}/{item['observed_statements']} estados, aprox. ${item['monthly_amount']:,.2f}/mes")
 
 if __name__ == "__main__":
     cli()
